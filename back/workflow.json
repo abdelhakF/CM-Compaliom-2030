@@ -1,0 +1,140 @@
+{
+  "name": "Supporters Needs Research – WC 2030 (Groq)",
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [0, 300]
+    },
+    {
+      "id": "2",
+      "name": "Set Inputs",
+      "type": "n8n-nodes-base.set",
+      "position": [200, 300],
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "countries", "value": "Maroc, Espagne, Portugal" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3",
+      "name": "Split Countries",
+      "type": "n8n-nodes-base.function",
+      "position": [400, 300],
+      "parameters": {
+        "functionCode": "return $json.countries.split(',').map(c => ({ json: { country: c.trim() } }));"
+      }
+    },
+    {
+      "id": "4",
+      "name": "Groq LLM Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 300],
+      "parameters": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "headerAuth": {
+          "name": "Authorization",
+          "value": "Bearer GROQ_API_KEY"
+        },
+        "options": {
+          "bodyContentType": "json"
+        },
+        "body": {
+          "model": "llama3-70b-8192",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert in tourism, transport and hospitality for major football events."
+            },
+            {
+              "role": "user",
+              "content": "Generate structured information for football supporters visiting {{ $json.country }}.\n\nInclude:\n- Transport options\n- Hotel types and price ranges\n- Restaurants and local food culture\n\nReturn STRICT JSON with keys: transport, hotels, restaurants."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "5",
+      "name": "Build HTML",
+      "type": "n8n-nodes-base.function",
+      "position": [900, 300],
+      "parameters": {
+        "functionCode": "const content = JSON.parse($json.choices[0].message.content);\nreturn [{ json: { html: `\n<h1>Guide des Supporteurs – ${$json.country}</h1>\n<h2>Transport</h2><p>${content.transport}</p>\n<h2>Hôtels</h2><p>${content.hotels}</p>\n<h2>Restaurants</h2><p>${content.restaurants}</p>\n` } }];"
+      }
+    },
+    {
+      "id": "6",
+      "name": "Create PDF (PDFMonkey)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1150, 300],
+      "parameters": {
+        "url": "https://api.pdfmonkey.io/api/v1/documents",
+        "method": "POST",
+        "authentication": "headerAuth",
+        "headerAuth": {
+          "name": "Authorization",
+          "value": "Bearer PDFMONKEY_API_KEY"
+        },
+        "options": {
+          "bodyContentType": "json"
+        },
+        "body": {
+          "document": {
+            "document_template_id": "PDFMONKEY_TEMPLATE_ID",
+            "payload": {
+              "content": "={{$json.html}}"
+            },
+            "status": "pending"
+          }
+        }
+      }
+    },
+    {
+      "id": "7",
+      "name": "Get PDF File",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1400, 300],
+      "parameters": {
+        "url": "={{$json.document.download_url}}",
+        "method": "GET",
+        "responseFormat": "file",
+        "dataPropertyName": "data"
+      }
+    },
+    {
+      "id": "8",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "position": [1650, 300],
+      "parameters": {
+        "operation": "upload",
+        "binaryData": true,
+        "binaryPropertyName": "data",
+        "fileName": "Guide_Supporteurs_{{$node['Split Countries'].json.country}}.pdf",
+        "parents": ["GOOGLE_DRIVE_FOLDER_ID"]
+      },
+      "credentials": {
+        "googleDriveOAuth2": {
+          "name": "Google Drive Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": { "main": [[{ "node": "Set Inputs", "type": "main" }]] },
+    "Set Inputs": { "main": [[{ "node": "Split Countries", "type": "main" }]] },
+    "Split Countries": { "main": [[{ "node": "Groq LLM Research", "type": "main" }]] },
+    "Groq LLM Research": { "main": [[{ "node": "Build HTML", "type": "main" }]] },
+    "Build HTML": { "main": [[{ "node": "Create PDF (PDFMonkey)", "type": "main" }]] },
+    "Create PDF (PDFMonkey)": { "main": [[{ "node": "Get PDF File", "type": "main" }]] },
+    "Get PDF File": { "main": [[{ "node": "Upload to Google Drive", "type": "main" }]] }
+  }
+}
+
